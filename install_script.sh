@@ -125,7 +125,7 @@ config_after_install() {
 
 install_x-ui() {
     cd /usr/local/
-    last_version="v2.2.0"
+    last_version="v2.3.3"
     url="https://github.com/MHSanaei/3x-ui/releases/download/${last_version}/x-ui-linux-$(arch3xui).tar.gz"
     echo -e "Beginning to install x-ui $last_version"
     wget -N --no-check-certificate -O /usr/local/x-ui-linux-$(arch3xui).tar.gz ${url}
