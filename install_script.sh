@@ -41,29 +41,17 @@ os_version=""
 os_version=$(grep -i version_id /etc/os-release | cut -d \" -f2 | cut -d . -f1)
 
 if [[ "${release}" == "centos" ]]; then
-    if [[ ${os_version} -lt 8 ]]; then
-        echo -e "${red} Please use CentOS 8 or higher ${plain}\n" && exit 1
-    fi
+    [[ ${os_version} -lt 8 ]] && echo -e "${red} Please use CentOS 8 or higher ${plain}\n" && exit 1
 elif [[ "${release}" == "ubuntu" ]]; then
-    if [[ ${os_version} -lt 20 ]]; then
-        echo -e "${red} Please use Ubuntu 20 or higher version!${plain}\n" && exit 1
-    fi
+    [[ ${os_version} -lt 20 ]] && echo -e "${red} Please use Ubuntu 20 or higher version!${plain}\n" && exit 1
 elif [[ "${release}" == "fedora" ]]; then
-    if [[ ${os_version} -lt 36 ]]; then
-        echo -e "${red} Please use Fedora 36 or higher version!${plain}\n" && exit 1
-    fi
+    [[ ${os_version} -lt 36 ]] && echo -e "${red} Please use Fedora 36 or higher version!${plain}\n" && exit 1
 elif [[ "${release}" == "debian" ]]; then
-    if [[ ${os_version} -lt 11 ]]; then
-        echo -e "${red} Please use Debian 11 or higher ${plain}\n" && exit 1
-    fi
+    [[ ${os_version} -lt 11 ]] && echo -e "${red} Please use Debian 11 or higher ${plain}\n" && exit 1
 elif [[ "${release}" == "almalinux" ]]; then
-    if [[ ${os_version} -lt 9 ]]; then
-        echo -e "${red} Please use AlmaLinux 9 or higher ${plain}\n" && exit 1
-    fi
+    [[ ${os_version} -lt 9 ]] && echo -e "${red} Please use AlmaLinux 9 or higher ${plain}\n" && exit 1
 elif [[ "${release}" == "rocky" ]]; then
-    if [[ ${os_version} -lt 9 ]]; then
-        echo -e "${red} Please use RockyLinux 9 or higher ${plain}\n" && exit 1
-    fi
+    [[ ${os_version} -lt 9 ]] && echo -e "${red} Please use RockyLinux 9 or higher ${plain}\n" && exit 1
 elif [[ "${release}" == "arch" ]]; then
     echo "Your OS is ArchLinux"
 elif [[ "${release}" == "manjaro" ]]; then
@@ -93,13 +81,13 @@ install_base() {
 
 config_after_install() {
     echo -e "${yellow}Install/update finished! For security it's recommended to modify panel settings ${plain}"
-    read -p "Do you want to continue with the modification [y/n]?": config_confirm
+    read -p "Do you want to continue with the modification [y/n]? " config_confirm
     if [[ "${config_confirm}" == "y" || "${config_confirm}" == "Y" ]]; then
-        read -p "Please set up your username:" config_account
+        read -p "Please set up your username: " config_account
         echo -e "${yellow}Your username will be:${config_account}${plain}"
-        read -p "Please set up your password:" config_password
+        read -p "Please set up your password: " config_password
         echo -e "${yellow}Your password will be:${config_password}${plain}"
-        read -p "Please set up the panel port:" config_port
+        read -p "Please set up the panel port: " config_port
         echo -e "${yellow}Your panel port is:${config_port}${plain}"
         echo -e "${yellow}Initializing, please wait...${plain}"
         /usr/local/x-ui/x-ui setting -username "${config_account}" -password "${config_password}"
@@ -134,7 +122,6 @@ install_x-ui() {
     VERSION="v2.3.3"
     FORK_OWNER="prooxyyy"
     FORK_REPO="3x-ui-wal"
-    # Прямая ссылка, которую ты дал:
     FORK_TARBALL_URL="https://github.com/${FORK_OWNER}/${FORK_REPO}/archive/refs/tags/${VERSION}.tar.gz"
 
     # ==== ОРИГИНАЛ ДЛЯ ФОЛЛБЭКА ====
@@ -145,12 +132,10 @@ install_x-ui() {
     ASSET_NAME="x-ui-linux-${ARCH}.tar.gz"
     echo -e "${yellow}Target asset: ${ASSET_NAME}${plain}"
 
-    # 1) Пытаемся достать из твоего форка
     TMPDIR="$(mktemp -d -t 3xui-XXXXXX)"
     echo -e "${yellow}Downloading fork tarball: ${FORK_TARBALL_URL}${plain}"
-    if wget -q --no-check-certificate -O "${TMPDIR}/fork.tar.gz" "${FORK_TARBALL_URL"; then
+    if wget -q --no-check-certificate -O "${TMPDIR}/fork.tar.gz" "${FORK_TARBALL_URL}"; then
         tar -xzf "${TMPDIR}/fork.tar.gz" -C "${TMPDIR}"
-        # ищем внутри архива готовый релизный архив под текущую арху
         FOUND_ASSET="$(find "${TMPDIR}" -type f -name "${ASSET_NAME}" | head -n1 || true)"
         if [[ -n "${FOUND_ASSET}" ]]; then
             echo -e "${green}Found ${ASSET_NAME} inside your fork. Using it.${plain}"
@@ -165,57 +150,6 @@ install_x-ui() {
         FROM="upstream"
     fi
 
-    # 2) Если не нашли в форке — качаем с оригинального релиза бинарный архив
     if [[ "${FROM}" == "upstream" ]]; then
         UPSTREAM_URL="https://github.com/${UPSTREAM_OWNER}/${UPSTREAM_REPO}/releases/download/${VERSION}/${ASSET_NAME}"
         echo -e "Downloading upstream asset: ${UPSTREAM_URL}"
-        wget -N --no-check-certificate -O "/usr/local/${ASSET_NAME}" "${UPSTREAM_URL}"
-    fi
-
-    if [[ ! -s "/usr/local/${ASSET_NAME}" ]]; then
-        echo -e "${red}Download failed: ${ASSET_NAME} not present.${plain}"
-        exit 1
-    fi
-
-    # чистим предыдущий инсталл
-    if [[ -e /usr/local/x-ui/ ]]; then
-        systemctl stop x-ui || true
-        rm -rf /usr/local/x-ui/
-    fi
-
-    # распаковываем готовый архив (даёт папку x-ui/)
-    tar -xzf "/usr/local/${ASSET_NAME}" -C /usr/local/
-    rm -f "/usr/local/${ASSET_NAME}"
-    cd /usr/local/x-ui
-    chmod +x x-ui
-    chmod +x bin/xray-linux-"${ARCH}"
-
-    # ставим сервис
-    cp -f x-ui.service /etc/systemd/system/
-
-    # тянем x-ui.sh сначала из твоего форка на тот же тег, если нет — из оригинала
-    FORK_SCRIPT_URL="https://raw.githubusercontent.com/${FORK_OWNER}/${FORK_REPO}/${VERSION}/x-ui.sh"
-    UPSTREAM_SCRIPT_URL="https://raw.githubusercontent.com/${UPSTREAM_OWNER}/${UPSTREAM_REPO}/main/x-ui.sh"
-    echo -e "${yellow}Downloading x-ui.sh from your fork tag ${VERSION}...${plain}"
-    if ! wget -q --no-check-certificate -O /usr/bin/x-ui "${FORK_SCRIPT_URL}"; then
-        echo -e "${yellow}Fork x-ui.sh not found on ${VERSION}, trying upstream main...${plain}"
-        wget --no-check-certificate -O /usr/bin/x-ui "${UPSTREAM_SCRIPT_URL}"
-    fi
-
-    chmod +x /usr/local/x-ui/x-ui.sh || true
-    chmod +x /usr/bin/x-ui
-
-    config_after_install
-
-    systemctl daemon-reload
-    systemctl enable x-ui
-    systemctl start x-ui
-    echo -e "${green}x-ui ${VERSION}${plain} installation finished, it is running now..."
-
-    # уборка
-    rm -rf "${TMPDIR}"
-}
-
-echo -e "${green}Running...${plain}"
-install_base
-install_x-ui "$1"
