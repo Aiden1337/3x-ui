@@ -5,6 +5,8 @@ green='\033[0;32m'
 yellow='\033[0;33m'
 plain='\033[0m'
 
+set -e
+
 cur_dir=$(pwd)
 
 [[ $EUID -ne 0 ]] && echo -e "${red}Fatal error: ${plain} Please run this script with root privilege \n " && exit 1
@@ -75,16 +77,16 @@ fi
 install_base() {
     case "${release}" in
     centos | almalinux | rocky)
-        yum -y update && yum install -y -q wget curl tar tzdata
+        yum -y update && yum install -y -q wget curl tar tzdata findutils
         ;;
     fedora)
-        dnf -y update && dnf install -y -q wget curl tar tzdata
+        dnf -y update && dnf install -y -q wget curl tar tzdata findutils
         ;;
     arch | manjaro)
-        pacman -Syu && pacman -Syu --noconfirm wget curl tar tzdata
+        pacman -Syu --noconfirm && pacman -S --noconfirm wget curl tar tzdata findutils
         ;;
     *)
-        apt-get update && apt install -y -q wget curl tar tzdata
+        apt-get update && apt-get install -y -q wget curl tar tzdata findutils
         ;;
     esac
 }
@@ -100,16 +102,18 @@ config_after_install() {
         read -p "Please set up the panel port:" config_port
         echo -e "${yellow}Your panel port is:${config_port}${plain}"
         echo -e "${yellow}Initializing, please wait...${plain}"
-        /usr/local/x-ui/x-ui setting -username ${config_account} -password ${config_password}
+        /usr/local/x-ui/x-ui setting -username "${config_account}" -password "${config_password}"
         echo -e "${yellow}Account name and password set successfully!${plain}"
-        /usr/local/x-ui/x-ui setting -port ${config_port}
+        /usr/local/x-ui/x-ui setting -port "${config_port}"
         echo -e "${yellow}Panel port set successfully!${plain}"
     else
         echo -e "${red}cancel...${plain}"
         if [[ ! -f "/etc/x-ui/x-ui.db" ]]; then
-            local usernameTemp=$(head -c 6 /dev/urandom | base64)
-            local passwordTemp=$(head -c 6 /dev/urandom | base64)
-            /usr/local/x-ui/x-ui setting -username ${usernameTemp} -password ${passwordTemp}
+            local usernameTemp
+            local passwordTemp
+            usernameTemp=$(head -c 6 /dev/urandom | base64)
+            passwordTemp=$(head -c 6 /dev/urandom | base64)
+            /usr/local/x-ui/x-ui setting -username "${usernameTemp}" -password "${passwordTemp}"
             echo -e "this is a fresh installation,will generate random login info for security concerns:"
             echo -e "###############################################"
             echo -e "${green}username:${usernameTemp}${plain}"
@@ -125,38 +129,93 @@ config_after_install() {
 
 install_x-ui() {
     cd /usr/local/
-    last_version="v2.3.3"
-    url="https://github.com/MHSanaei/3x-ui/releases/download/${last_version}/x-ui-linux-$(arch3xui).tar.gz"
-    echo -e "Beginning to install x-ui $last_version"
-    wget -N --no-check-certificate -O /usr/local/x-ui-linux-$(arch3xui).tar.gz ${url}
-    if [[ $? -ne 0 ]]; then
-        echo -e "${red}Download x-ui $1 failed,please check the version exists ${plain}"
+
+    # ==== НАСТРОЙКИ ФОРКА ====
+    VERSION="v2.3.3"
+    FORK_OWNER="prooxyyy"
+    FORK_REPO="3x-ui-wal"
+    # Прямая ссылка, которую ты дал:
+    FORK_TARBALL_URL="https://github.com/${FORK_OWNER}/${FORK_REPO}/archive/refs/tags/${VERSION}.tar.gz"
+
+    # ==== ОРИГИНАЛ ДЛЯ ФОЛЛБЭКА ====
+    UPSTREAM_OWNER="MHSanaei"
+    UPSTREAM_REPO="3x-ui"
+
+    ARCH="$(arch3xui)"
+    ASSET_NAME="x-ui-linux-${ARCH}.tar.gz"
+    echo -e "${yellow}Target asset: ${ASSET_NAME}${plain}"
+
+    # 1) Пытаемся достать из твоего форка
+    TMPDIR="$(mktemp -d -t 3xui-XXXXXX)"
+    echo -e "${yellow}Downloading fork tarball: ${FORK_TARBALL_URL}${plain}"
+    if wget -q --no-check-certificate -O "${TMPDIR}/fork.tar.gz" "${FORK_TARBALL_URL"; then
+        tar -xzf "${TMPDIR}/fork.tar.gz" -C "${TMPDIR}"
+        # ищем внутри архива готовый релизный архив под текущую арху
+        FOUND_ASSET="$(find "${TMPDIR}" -type f -name "${ASSET_NAME}" | head -n1 || true)"
+        if [[ -n "${FOUND_ASSET}" ]]; then
+            echo -e "${green}Found ${ASSET_NAME} inside your fork. Using it.${plain}"
+            cp -f "${FOUND_ASSET}" "/usr/local/${ASSET_NAME}"
+            FROM="fork"
+        else
+            echo -e "${yellow}Did not find ${ASSET_NAME} inside the fork tarball. Will try upstream asset.${plain}"
+            FROM="upstream"
+        fi
+    else
+        echo -e "${yellow}Could not download your fork tarball. Will try upstream asset.${plain}"
+        FROM="upstream"
+    fi
+
+    # 2) Если не нашли в форке — качаем с оригинального релиза бинарный архив
+    if [[ "${FROM}" == "upstream" ]]; then
+        UPSTREAM_URL="https://github.com/${UPSTREAM_OWNER}/${UPSTREAM_REPO}/releases/download/${VERSION}/${ASSET_NAME}"
+        echo -e "Downloading upstream asset: ${UPSTREAM_URL}"
+        wget -N --no-check-certificate -O "/usr/local/${ASSET_NAME}" "${UPSTREAM_URL}"
+    fi
+
+    if [[ ! -s "/usr/local/${ASSET_NAME}" ]]; then
+        echo -e "${red}Download failed: ${ASSET_NAME} not present.${plain}"
         exit 1
     fi
 
+    # чистим предыдущий инсталл
     if [[ -e /usr/local/x-ui/ ]]; then
-        systemctl stop x-ui
-        rm /usr/local/x-ui/ -rf
+        systemctl stop x-ui || true
+        rm -rf /usr/local/x-ui/
     fi
 
-    tar zxvf x-ui-linux-$(arch3xui).tar.gz
-    rm x-ui-linux-$(arch3xui).tar.gz -f
-    cd x-ui
+    # распаковываем готовый архив (даёт папку x-ui/)
+    tar -xzf "/usr/local/${ASSET_NAME}" -C /usr/local/
+    rm -f "/usr/local/${ASSET_NAME}"
+    cd /usr/local/x-ui
     chmod +x x-ui
+    chmod +x bin/xray-linux-"${ARCH}"
 
-    chmod +x x-ui bin/xray-linux-$(arch3xui)
+    # ставим сервис
     cp -f x-ui.service /etc/systemd/system/
-    wget --no-check-certificate -O /usr/bin/x-ui https://raw.githubusercontent.com/MHSanaei/3x-ui/main/x-ui.sh
-    chmod +x /usr/local/x-ui/x-ui.sh
+
+    # тянем x-ui.sh сначала из твоего форка на тот же тег, если нет — из оригинала
+    FORK_SCRIPT_URL="https://raw.githubusercontent.com/${FORK_OWNER}/${FORK_REPO}/${VERSION}/x-ui.sh"
+    UPSTREAM_SCRIPT_URL="https://raw.githubusercontent.com/${UPSTREAM_OWNER}/${UPSTREAM_REPO}/main/x-ui.sh"
+    echo -e "${yellow}Downloading x-ui.sh from your fork tag ${VERSION}...${plain}"
+    if ! wget -q --no-check-certificate -O /usr/bin/x-ui "${FORK_SCRIPT_URL}"; then
+        echo -e "${yellow}Fork x-ui.sh not found on ${VERSION}, trying upstream main...${plain}"
+        wget --no-check-certificate -O /usr/bin/x-ui "${UPSTREAM_SCRIPT_URL}"
+    fi
+
+    chmod +x /usr/local/x-ui/x-ui.sh || true
     chmod +x /usr/bin/x-ui
+
     config_after_install
 
     systemctl daemon-reload
     systemctl enable x-ui
     systemctl start x-ui
-    echo -e "${green}x-ui ${last_version}${plain} installation finished, it is running now..."
+    echo -e "${green}x-ui ${VERSION}${plain} installation finished, it is running now..."
+
+    # уборка
+    rm -rf "${TMPDIR}"
 }
 
 echo -e "${green}Running...${plain}"
 install_base
-install_x-ui $1
+install_x-ui "$1"
